@@ -11,6 +11,17 @@ export default function PillTracker() {
   const intervalRef = useRef(null);
   const startTimeRef = useRef(null);
 
+  // Calculate total elapsed time from actual timestamps
+  const calculateTotalTimeFromTimestamps = (lapsArray) => {
+    if (lapsArray.length === 0) return 0;
+    if (lapsArray.length === 1) return 0; // First dose, no time elapsed yet
+    
+    // Sum up all the actual time differences between consecutive doses
+    const firstDoseTime = lapsArray[0].actualTimestamp;
+    const lastDoseTime = lapsArray[lapsArray.length - 1].actualTimestamp;
+    return lastDoseTime - firstDoseTime;
+  };
+
   // Load saved data on mount
   useEffect(() => {
     try {
@@ -22,10 +33,16 @@ export default function PillTracker() {
         const today = new Date().toDateString();
         
         if (savedDate === today) {
-          setLaps(data.laps || []);
+          const loadedLaps = data.laps || [];
+          setLaps(loadedLaps);
           setPillsRemaining(data.pillsRemaining);
           setInitialPillCount(data.initialPillCount || 10);
-          setElapsedTime(data.elapsedTime || 0);
+          
+          // Recalculate elapsed time from actual timestamps
+          if (loadedLaps.length > 0) {
+            const calculatedTime = calculateTotalTimeFromTimestamps(loadedLaps);
+            setElapsedTime(calculatedTime);
+          }
         }
       }
     } catch (e) {
@@ -72,7 +89,7 @@ export default function PillTracker() {
         clearInterval(intervalRef.current);
       }
     };
-  }, [isRunning]);
+  }, [isRunning, elapsedTime]);
 
   const formatTime = (ms) => {
     const totalSeconds = Math.floor(ms / 1000);
@@ -116,16 +133,19 @@ export default function PillTracker() {
     if (!isRunning && laps.length === 0) {
       // First start - set pills remaining and record initial pill count as first lap
       setPillsRemaining(initialPillCount - pillCount);
-      const lapTime = elapsedTime;
+      const now = Date.now();
       setLaps([{
         id: 1,
         pillCount: pillCount,
         lapDuration: 0,
         totalTime: 0,
         timestamp: getESTTime(),
-        fullTimestamp: new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })
+        fullTimestamp: new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }),
+        actualTimestamp: now // Store actual millisecond timestamp
       }]);
       setPillCount(1);
+      // Set elapsed time to 0 for first dose
+      setElapsedTime(0);
     }
     setIsRunning(!isRunning);
   };
@@ -137,18 +157,27 @@ export default function PillTracker() {
   };
 
   const confirmLap = () => {
-    const lapTime = elapsedTime;
-    const lastLapTime = laps.length > 0 ? laps[laps.length - 1].totalTime : 0;
-    const lapDuration = lapTime - lastLapTime;
+    const now = Date.now();
+    
+    // Calculate lap duration from actual timestamps
+    const lastLapTimestamp = laps[laps.length - 1].actualTimestamp;
+    const actualLapDuration = now - lastLapTimestamp;
+    
+    // Calculate new total time from all timestamps
+    const newTotalTime = calculateTotalTimeFromTimestamps([...laps, { actualTimestamp: now }]);
     
     setLaps([...laps, {
       id: laps.length + 1,
       pillCount: pillCount,
-      lapDuration: lapDuration,
-      totalTime: lapTime,
+      lapDuration: actualLapDuration, // Use actual timestamp difference
+      totalTime: newTotalTime,
       timestamp: getESTTime(),
-      fullTimestamp: new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })
+      fullTimestamp: new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }),
+      actualTimestamp: now // Store actual millisecond timestamp
     }]);
+    
+    // Update the elapsed time to match the new total from timestamps
+    setElapsedTime(newTotalTime);
     
     // Subtract from remaining pills
     setPillsRemaining(prev => prev - pillCount);
@@ -404,6 +433,7 @@ export default function PillTracker() {
               </div>
             </div>
           </div>
+
 
           {/* Dose History - Compact */}
           {laps.length > 0 && (
